@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Paper Trading Engine</title>
+<script src="/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0A0D12;
+    --panel:#12161D;
+    --panel-2:#171C25;
+    --border:#1F2530;
+    --text:#E8ECF1;
+    --muted:#7A8394;
+    --accent:#22D3EE;
+    --profit:#34D399;
+    --loss:#F87171;
+    --warn:#FBBF24;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'Space Grotesk',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'JetBrains Mono',monospace;}
+  a{color:inherit;}
+
+  .shell{display:flex; min-height:100vh;}
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    width:280px; flex-shrink:0; background:var(--panel);
+    border-right:1px solid var(--border); padding:20px 18px;
+    display:flex; flex-direction:column; gap:22px;
+  }
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand .logo-dot{width:10px; height:10px; border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent); animation:pulse-dot 2s ease-in-out infinite;}
+  @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+  .brand h1{font-size:15px; margin:0; letter-spacing:.02em;}
+  .brand p{margin:0; font-size:11px; color:var(--muted);}
+
+  .section-label{
+    font-size:10.5px; text-transform:uppercase; letter-spacing:.12em;
+    color:var(--muted); margin:0 0 8px 2px;
+  }
+  .field{margin-bottom:12px;}
+  select, button.btn{
+    width:100%; background:var(--panel-2); border:1px solid var(--border);
+    color:var(--text); padding:9px 10px; border-radius:8px; font-size:13px;
+    font-family:inherit; cursor:pointer;
+  }
+  select:focus{outline:1px solid var(--accent);}
+
+  .status-pill{
+    display:inline-flex; align-items:center; gap:6px; font-size:11.5px;
+    padding:5px 9px; border-radius:20px; border:1px solid var(--border);
+  }
+  .status-pill .dot{width:7px; height:7px; border-radius:50%;}
+  .status-pill .dot.pulse{animation:pulse-dot 1.5s ease-in-out infinite;}
+  .status-pill.online{color:var(--profit); border-color:rgba(52,211,153,.35);}
+  .status-pill.online .dot{background:var(--profit); box-shadow:0 0 6px var(--profit);}
+  .status-pill.offline{color:var(--loss); border-color:rgba(248,113,113,.35);}
+  .status-pill.offline .dot{background:var(--loss);}
+  .status-pill.thinking{color:var(--accent); border-color:rgba(34,211,238,.35);}
+  .status-pill.thinking .dot{background:var(--accent); box-shadow:0 0 6px var(--accent);}
+
+  .live-indicator{
+    display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--muted);
+  }
+  .live-indicator .blip{
+    width:5px; height:5px; border-radius:50%; background:var(--profit);
+    animation:blip 1s step-end infinite;
+  }
+  .live-indicator .blip.off{background:var(--loss); animation:none;}
+  @keyframes blip{0%{opacity:0}50%{opacity:1}}
+
+  .thinking-row{
+    display:flex; align-items:center; gap:8px; font-size:11px;
+    color:var(--muted); font-family:'JetBrains Mono',monospace;
+  }
+  .spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .thinking-row .t-label{color:var(--accent);}
+
+  .control-buttons{display:flex; flex-direction:column; gap:8px;}
+  .btn-run{background:rgba(52,211,153,.12); border-color:rgba(52,211,153,.4); color:var(--profit); font-weight:600;}
+  .btn-stop{background:rgba(248,113,113,.12); border-color:rgba(248,113,113,.4); color:var(--loss); font-weight:600;}
+  .btn-run:hover, .btn-stop:hover{filter:brightness(1.15);}
+
+  .sidebar-footer{margin-top:auto; font-size:10.5px; color:var(--muted); line-height:1.5;}
+
+  /* ---------- Main ---------- */
+  .main{flex:1; min-width:0; display:flex; flex-direction:column;}
+  header.topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 26px; border-bottom:1px solid var(--border);
+  }
+  header.topbar .topbar-left{display:flex; align-items:center; gap:14px;}
+  header.topbar h2{margin:0; font-size:20px; font-weight:600;}
+  header.topbar .env-badge{
+    font-size:11px; font-weight:700; letter-spacing:.08em;
+    background:var(--warn); color:#1a1200; padding:4px 10px; border-radius:6px;
+  }
+  .topbar-right{display:flex; align-items:center; gap:12px;}
+  .last-update{font-size:10.5px; color:var(--muted); font-family:'JetBrains Mono',monospace;}
+
+  /* ticker */
+  .ticker-wrap{
+    border-bottom:1px solid var(--border); background:var(--panel);
+    overflow:hidden; white-space:nowrap; position:relative; height:30px;
+  }
+  .ticker-wrap:hover .ticker-track{animation-play-state:paused;}
+  .ticker-track{
+    display:inline-flex; gap:40px; padding-left:100%;
+    animation:scroll 48s linear infinite; align-items:center; height:30px;
+  }
+  .ticker-item{font-size:11.5px; color:var(--muted);}
+  .ticker-item b{color:var(--text);}
+  .ticker-item.buy b{color:var(--profit);}
+  .ticker-item.sell b{color:var(--loss);}
+  .ticker-item.analyze b{color:var(--accent);}
+  .ticker-item.status b{color:var(--warn);}
+  @keyframes scroll{ from{transform:translateX(0);} to{transform:translateX(-100%);} }
+
+  .content{padding:22px 26px; display:flex; flex-direction:column; gap:20px;}
+
+  .stat-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:14px;}
+  .stat-card{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px 18px; position:relative; overflow:hidden;
+  }
+  .stat-card .label{font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted);}
+  .stat-card .value{font-size:24px; font-weight:600; margin-top:6px; transition:color .3s;}
+  .stat-card .sub{font-size:11px; color:var(--muted); margin-top:4px;}
+  .pos{color:var(--profit);} .neg{color:var(--loss);}
+
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:18px;}
+  .panel h3{margin:0 0 14px; font-size:13.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600;}
+
+  .chart-wrap{height:230px;}
+
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  th{
+    text-align:left; font-weight:600; color:var(--muted); font-size:10.5px;
+    text-transform:uppercase; letter-spacing:.06em; padding:8px 10px; border-bottom:1px solid var(--border);
+  }
+  td{padding:9px 10px; border-bottom:1px solid var(--border); color:var(--text);}
+  tr:last-child td{border-bottom:none;}
+
+  .tabs{display:flex; gap:6px; margin-bottom:12px;}
+  .tab-btn{
+    background:transparent; border:1px solid var(--border); color:var(--muted);
+    padding:6px 12px; border-radius:7px; font-size:12px; cursor:pointer; font-family:inherit;
+  }
+  .tab-btn.active{background:rgba(34,211,238,.12); border-color:rgba(34,211,238,.4); color:var(--accent);}
+
+  .empty-row td{color:var(--muted); text-align:center; padding:22px 0;}
+
+  .two-col{display:grid; grid-template-columns:2fr 1fr; gap:20px;}
+  @media (max-width:980px){ .two-col{grid-template-columns:1fr;} .stat-grid{grid-template-columns:repeat(2,1fr);} }
+
+  /* ---------- Terminal ---------- */
+  .terminal-wrap{border:1px solid var(--border); border-radius:var(--radius); background:#080B10; overflow:hidden;}
+  .terminal-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 14px; background:var(--panel-2); border-bottom:1px solid var(--border);
+  }
+  .terminal-header .title{font-size:10.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); font-weight:600;}
+  .terminal-header .badge{font-size:10px; padding:2px 8px; border-radius:4px; background:rgba(34,211,238,.1); color:var(--accent);}
+  .terminal-log{
+    height:160px; overflow-y:auto; padding:10px 14px;
+    font-family:'JetBrains Mono',monospace; font-size:11.5px; line-height:1.7;
+  }
+  .terminal-log::-webkit-scrollbar{width:4px;}
+  .terminal-log::-webkit-scrollbar-thumb{background:var(--border); border-radius:2px;}
+  .log-line{white-space:nowrap;}
+  .log-line .ts{color:#4B5563; margin-right:8px;}
+  .log-line .tag{display:inline-block; width:52px; font-weight:600;}
+  .log-line .tag.info{color:var(--accent);}
+  .log-line .tag.trade{color:var(--profit);}
+  .log-line .tag.exit{color:var(--loss);}
+  .log-line .tag.warn{color:var(--warn);}
+  .log-line .tag.analyze{color:#A78BFA;}
+  .log-line .tag.status{color:var(--muted);}
+  .log-line .msg{color:var(--muted);}
+  .log-line .msg b{color:var(--text); font-weight:400;}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="logo-dot"></span>
+      <div>
+        <h1>Paper Trading Engine</h1>
+        <p>Freqtrade-powered</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Connection</div>
+      <span id="apiStatus" class="status-pill offline"><span class="dot"></span>Connecting…</span>
+      <div class="live-indicator" style="margin-top:8px;">
+        <span class="blip" id="liveBlip"></span>
+        <span id="liveLabel">initializing</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Bot Status</div>
+      <div class="thinking-row" id="thinkingRow">
+        <span class="spinner"></span>
+        <span class="t-label">thinking</span>
+        <span id="thinkingDetail" style="color:var(--muted);">—</span>
+      </div>
+      <div style="margin-top:6px;font-size:10.5px;color:var(--muted);font-family:'JetBrains Mono',monospace;">
+        last analysis: <span id="lastAnalysisTime">—</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Strategy</div>
+      <div class="field mono" id="strategyName" style="padding:9px 10px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; font-size:13px;">Loading…</div>
+    </div>
+
+    <div>
+      <div class="section-label">Market</div>
+      <div class="field mono" id="pairList" style="padding:9px 10px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; font-size:12px; line-height:1.6;">Loading…</div>
+    </div>
+
+    <div>
+      <div class="section-label">Control</div>
+      <div class="control-buttons">
+        <button class="btn btn-run" id="btnStart">▶ Start Bot</button>
+        <button class="btn btn-stop" id="btnStop">■ Stop Bot</button>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      This dashboard only displays and controls a real Freqtrade dry-run process via its own
+      REST API. All trading, indicator and PnL logic runs inside Freqtrade itself.
+    </div>
+  </aside>
+
+  <!-- ===================== MAIN ===================== -->
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h2>Overview</h2>
+        <span class="env-badge">DEMO / PAPER</span>
+      </div>
+      <div class="topbar-right">
+        <span class="last-update" id="lastPollTime">—</span>
+      </div>
+    </header>
+
+    <div class="ticker-wrap">
+      <div class="ticker-track" id="tickerTrack">
+        <span class="ticker-item" id="tickerPlaceholder">Waiting for Freqtrade activity…</span>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="label">Net P&amp;L @ 0.1% fee</div>
+          <div class="value mono" id="statNetPnl">—</div>
+          <div class="sub" id="statNetPnlSub">&nbsp;</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Trades</div>
+          <div class="value mono" id="statTrades">—</div>
+          <div class="sub" id="statTradesSub">closed</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Win Rate</div>
+          <div class="value mono" id="statWinRate">—</div>
+          <div class="sub" id="statWinRateSub">&nbsp;</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Equity</div>
+          <div class="value mono" id="statEquity">—</div>
+          <div class="sub" id="statEquitySub">&nbsp;</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Fees Paid</div>
+          <div class="value mono" id="statFees">—</div>
+          <div class="sub" id="statFeesSub">Gate.io 0.1% spot</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <h3>Equity Curve</h3>
+          <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
+        </div>
+        <div class="panel">
+          <h3>Balance</h3>
+          <table>
+            <thead><tr><th>Currency</th><th>Free</th><th>Used</th><th>Total</th></tr></thead>
+            <tbody id="balanceBody"><tr class="empty-row"><td colspan="4">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="open">Open Trades</button>
+          <button class="tab-btn" data-tab="history">Trade History</button>
+          <button class="tab-btn" data-tab="performance">Performance</button>
+        </div>
+
+        <table id="tbl-open">
+          <thead><tr><th>Opened</th><th>Pair</th><th>Amount</th><th>Open Rate</th><th>Current Rate</th><th>P&amp;L %</th><th>P&amp;L</th></tr></thead>
+          <tbody><tr class="empty-row"><td colspan="7">No open trades</td></tr></tbody>
+        </table>
+
+        <table id="tbl-history" style="display:none;">
+          <thead><tr><th>Closed</th><th>Pair</th><th>Amount</th><th>Open Rate</th><th>Close Rate</th><th>P&amp;L %</th><th>P&amp;L</th><th>Exit Reason</th></tr></thead>
+          <tbody><tr class="empty-row"><td colspan="8">No closed trades yet</td></tr></tbody>
+        </table>
+
+        <table id="tbl-performance" style="display:none;">
+          <thead><tr><th>Pair</th><th>Trades</th><th>P&amp;L %</th><th>P&amp;L</th></tr></thead>
+          <tbody><tr class="empty-row"><td colspan="4">No performance data yet</td></tr></tbody>
+        </table>
+      </div>
+
+      <!-- ===================== TERMINAL ===================== -->
+      <div class="terminal-wrap">
+        <div class="terminal-header">
+          <span class="title">Activity Log</span>
+          <span class="badge" id="logCount">0 events</span>
+        </div>
+        <div class="terminal-log" id="terminalLog">
+          <div class="log-line"><span class="ts">—</span><span class="tag status">init</span><span class="msg">waiting for data…</span></div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+const WS_BASE = API_BASE.replace(/^http/, 'ws');
+
+const $ = (id) => document.getElementById(id);
+const fmtMoney = (v) => (v >= 0 ? '+' : '') + '$' + Number(v).toFixed(2);
+const fmtPct   = (v) => Number(v).toFixed(2) + '%';
+const fmtTime  = (iso) => { try { return new Date(iso).toLocaleTimeString(); } catch(e){ return '--'; } };
+const pnlClass = (v) => v >= 0 ? 'pos' : 'neg';
+const pick = (obj, ...keys) => { for (const k of keys) { if (obj?.[k] !== undefined && obj[k] !== null) return obj[k]; } return undefined; };
+const openPnlPct = (t) => { const r = t.profit_ratio; return r !== undefined ? Number(r) * 100 : Number(t.profit_pct ?? 0); };
+const closedPnlPct = (t) => { const r = pick(t, 'profit_ratio', 'close_profit'); return r !== undefined ? Number(r) * 100 : Number(pick(t, 'profit_pct', 'close_profit_pct') ?? 0); };
+const now = () => new Date().toLocaleTimeString();
+
+/* ---------- Terminal log ---------- */
+const MAX_LOG = 100;
+const logLines = [];
+let logCount = 0;
+
+function log(tag, cls, msg){
+  const line = `<div class="log-line"><span class="ts">${now()}</span><span class="tag ${cls}">${tag}</span><span class="msg">${msg}</span></div>`;
+  logLines.push(line);
+  if(logLines.length > MAX_LOG) logLines.shift();
+  const el = $('terminalLog');
+  el.innerHTML = logLines.join('');
+  el.scrollTop = el.scrollHeight;
+  $('logCount').textContent = `${++logCount} events`;
+}
+
+/* ---------- Equity chart ---------- */
+const ctx = $('equityChart').getContext('2d');
+const equityChart = new Chart(ctx, {
+  type:'line',
+  data:{ labels:[], datasets:[{
+    data:[], borderColor:'#22D3EE', borderWidth:2, pointRadius:0, tension:.25,
+    fill:true, backgroundColor:'rgba(34,211,238,0.08)',
+  }]},
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    plugins:{ legend:{display:false} },
+    scales:{
+      x:{ display:false },
+      y:{ grid:{color:'#1F2530'}, ticks:{color:'#7A8394', font:{family:'JetBrains Mono', size:10}} }
+    }
+  }
+});
+
+/* ---------- Live ticker (REST fallback + WS) ---------- */
+const tickerItems = [];
+function pushTicker(type, detail, cls){
+  const item = `<span class="ticker-item ${cls}"><b>${type}</b> ${detail}</span>`;
+  tickerItems.unshift(item);
+  tickerItems.length = Math.min(tickerItems.length, 30);
+  $('tickerTrack').innerHTML = tickerItems.join('<span class="ticker-item">·</span>');
+}
+
+/* ---------- Health / status ---------- */
+let lastWsSeen = 0;
+let wsConnected = false;
+
+function setApiStatus(online){
+  const el = $('apiStatus');
+  el.className = 'status-pill ' + (online ? 'online' : 'offline');
+  el.innerHTML = `<span class="dot ${online ? 'pulse' : ''}"></span>${online ? 'Connected' : 'Disconnected'}`;
+  $('liveBlip').className = 'blip' + (online ? '' : ' off');
+  $('liveLabel').textContent = online ? 'live' : 'offline';
+}
+
+/* ---------- REST polling ---------- */
+async function refreshHealth(){
+  try{
+    const h = await getJSON('/health');
+    const ok = h.status === 'ok';
+    setApiStatus(ok);
+    if(ok) log('api','info','Freqtrade API reachable');
+    else log('api','warn','Freqtrade API degraded');
+  } catch(e){
+    setApiStatus(false);
+    log('api','warn','API unreachable');
+  }
+}
+
+async function refreshConfig(){
+  try{
+    const cfg = await getJSON('/api/config');
+    const s = pick(cfg, 'strategy') || '—';
+    $('strategyName').textContent = s;
+    log('cfg','info','strategy: ' + s);
+  } catch(e){ $('strategyName').textContent = 'unavailable'; }
+
+  try{
+    const wl = await getJSON('/api/whitelist');
+    const pairs = pick(wl, 'whitelist') || [];
+    $('pairList').innerHTML = pairs.length ? pairs.join('<br>') : '—';
+  } catch(e){ $('pairList').textContent = 'unavailable'; }
+}
+
+async function refreshProfit(){
+  try{
+    const p = await getJSON('/api/profit');
+    const netPnl = pick(p, 'profit_closed_coin', 'profit_all_coin', 'profit_closed_abs') || 0;
+    const winrate = pick(p, 'winrate');
+    const winning = pick(p, 'winning_trades');
+    const total = pick(p, 'trade_count', 'closed_trade_count');
+    const winrateComputed = winrate !== undefined ? winrate * 100 : (total ? (winning / total * 100) : 0);
+
+    $('statNetPnl').textContent = fmtMoney(netPnl);
+    $('statNetPnl').className = 'value mono ' + pnlClass(netPnl);
+    $('statNetPnlSub').textContent = netPnl >= 0 ? 'gained' : 'lost';
+    $('statTrades').textContent = total ?? 0;
+    $('statWinRate').textContent = fmtPct(winrateComputed || 0);
+    $('statWinRateSub').textContent = 'max DD ' + fmtPct((pick(p, 'max_drawdown') || 0) * 100);
+
+    // Ticker: PnL update
+    const pair = pick(p, 'best_pair');
+    if(pair) pushTicker('PNL', `${pair} ${fmtMoney(netPnl)}`, 'status');
+  } catch(e){}
+}
+
+async function refreshBalance(){
+  try{
+    const b = await getJSON('/api/balance');
+    const eq = Number(pick(b, 'total', 'value') || 0);
+    const sc = Number(pick(b, 'starting_capital') || 0);
+    $('statEquity').textContent = '$' + eq.toFixed(2);
+    $('statEquitySub').textContent = 'starting $' + sc.toFixed(2) + ' · ' + (eq - sc >= 0 ? '+' : '') + (eq - sc).toFixed(2);
+
+    const currencies = pick(b, 'currencies') || [];
+    $('balanceBody').innerHTML = currencies.length ? currencies.map(c => `<tr>
+      <td>${pick(c,'currency','symbol')}</td>
+      <td class="mono">${Number(pick(c,'free',0)).toFixed(4)}</td>
+      <td class="mono">${Number(pick(c,'used',0)).toFixed(4)}</td>
+      <td class="mono">${Number(pick(c,'balance','total',0)).toFixed(4)}</td>
+    </tr>`).join('') : '<tr class="empty-row"><td colspan="4">No balance data</td></tr>';
+  } catch(e){}
+}
+
+async function refreshDaily(){
+  try{
+    const d = await getJSON('/api/daily');
+    const series = pick(d, 'data') || [];
+    const values = series.map(row => Number(pick(row, 'abs_profit', 'profit_abs') || 0));
+    equityChart.data.labels = series.map(row => pick(row, 'date'));
+    equityChart.data.datasets[0].data = values;
+    equityChart.update('none');
+  } catch(e){}
+}
+
+async function refreshFees(){
+  try{
+    const f = await getJSON('/api/fees');
+    $('statFees').textContent = '$' + f.total_fees.toFixed(2);
+    $('statFeesSub').textContent = f.trade_count + ' trades @ Gate.io 0.1%';
+  } catch(e){ $('statFees').textContent = '?'; }
+}
+
+async function refreshOpenTrades(){
+  try{
+    const rows = await getJSON('/api/status');
+    const body = document.querySelector('#tbl-open tbody');
+    body.innerHTML = (rows || []).length ? rows.map(t => {
+      const pnlPct = openPnlPct(t);
+      const pnlAbs = Number(pick(t,'profit_abs') || 0);
+      return `<tr>
+        <td class="mono">${fmtTime(pick(t,'open_date'))}</td>
+        <td>${pick(t,'pair')}</td>
+        <td class="mono">${Number(pick(t,'amount') || 0).toFixed(4)}</td>
+        <td class="mono">${Number(pick(t,'open_rate') || 0).toFixed(4)}</td>
+        <td class="mono">${Number(pick(t,'current_rate') || 0).toFixed(4)}</td>
+        <td class="mono ${pnlClass(pnlPct)}">${fmtPct(pnlPct)}</td>
+        <td class="mono ${pnlClass(pnlAbs)}">${fmtMoney(pnlAbs)}</td>
+      </tr>`;
+    }).join('') : '<tr class="empty-row"><td colspan="7">No open trades</td></tr>';
+  } catch(e){}
+}
+
+async function refreshHistory(){
+  try{
+    const resp = await getJSON('/api/trades');
+    const rows = pick(resp, 'trades') || (Array.isArray(resp) ? resp : []);
+    const body = document.querySelector('#tbl-history tbody');
+    body.innerHTML = rows.length ? rows.slice(0,100).map(t => {
+      const pnlPct = closedPnlPct(t);
+      const pnlAbs = Number(pick(t,'profit_abs','close_profit_abs') || 0);
+      return `<tr>
+        <td class="mono">${fmtTime(pick(t,'close_date'))}</td>
+        <td>${pick(t,'pair')}</td>
+        <td class="mono">${Number(pick(t,'amount') || 0).toFixed(4)}</td>
+        <td class="mono">${Number(pick(t,'open_rate') || 0).toFixed(4)}</td>
+        <td class="mono">${Number(pick(t,'close_rate') || 0).toFixed(4)}</td>
+        <td class="mono ${pnlClass(pnlPct)}">${fmtPct(pnlPct)}</td>
+        <td class="mono ${pnlClass(pnlAbs)}">${fmtMoney(pnlAbs)}</td>
+        <td>${pick(t,'exit_reason','sell_reason') || '—'}</td>
+      </tr>`;
+    }).join('') : '<tr class="empty-row"><td colspan="8">No closed trades yet</td></tr>';
+  } catch(e){}
+}
+
+async function refreshPerformance(){
+  try{
+    const rows = await getJSON('/api/performance');
+    const body = document.querySelector('#tbl-performance tbody');
+    body.innerHTML = (rows || []).length ? rows.map(p => `<tr>
+      <td>${pick(p,'pair')}</td>
+      <td class="mono">${pick(p,'count') ?? 0}</td>
+      <td class="mono ${pnlClass(pick(p,'profit_pct',0))}">${fmtPct(pick(p,'profit_pct') || 0)}</td>
+      <td class="mono ${pnlClass(pick(p,'profit_abs',0))}">${fmtMoney(pick(p,'profit_abs') || 0)}</td>
+    </tr>`).join('') : '<tr class="empty-row"><td colspan="4">No performance data yet</td></tr>';
+  } catch(e){}
+}
+
+/* ---------- WebSocket ---------- */
+function connectWS(){
+  const ws = new WebSocket(WS_BASE + '/ws/messages');
+  ws.onopen = () => { wsConnected = true; log('ws','info','WebSocket connected'); };
+  ws.onmessage = (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+      lastWsSeen = Date.now();
+      handleWSMessage(msg);
+      refreshOpenTrades(); refreshProfit(); refreshBalance();
+    } catch(e){}
+  };
+  ws.onclose = () => {
+    wsConnected = false;
+    log('ws','warn','WebSocket disconnected, retrying…');
+    setTimeout(connectWS, 3000);
+  };
+  ws.onerror = () => ws.close();
+}
+
+function handleWSMessage(msg){
+  const type = msg.type || 'event';
+  const pair = msg.pair || '';
+  const data = msg.data || {};
+
+  switch(type){
+    case 'analyzed_df': {
+      const key = Array.isArray(data.key) ? data.key[0] : (data.key || '?');
+      pushTicker('ANALYZE', key, 'analyze');
+      log('analyze','analyze',`analyzed ${key}`);
+      $('lastAnalysisTime').textContent = now();
+      $('thinkingDetail').textContent = key;
+      break;
+    }
+    case 'new_candle': {
+      const k = data.key || pair;
+      pushTicker('CANDLE', k, 'status');
+      log('candle','info',`new candle: ${k}`);
+      break;
+    }
+    case 'entry': case 'entry_fill': {
+      const p = pair || data.pair || '?';
+      pushTicker('BUY', p, 'buy');
+      log('trade','trade',`ENTRY ${p}`);
+      break;
+    }
+    case 'exit': case 'exit_fill': {
+      const p = pair || data.pair || '?';
+      pushTicker('SELL', p, 'sell');
+      log('exit','exit',`EXIT ${p}`);
+      break;
+    }
+    case 'entry_cancel': {
+      pushTicker('CANCEL', pair, 'warn');
+      log('trade','warn',`entry cancelled: ${pair}`);
+      break;
+    }
+    case 'exit_cancel': {
+      pushTicker('CANCEL', pair, 'warn');
+      log('exit','warn',`exit cancelled: ${pair}`);
+      break;
+    }
+    case 'whitelist': {
+      const wl = data.whitelist || [];
+      pushTicker('WHITELIST', wl.join(', '), 'status');
+      log('cfg','info',`whitelist updated: ${wl.length} pairs`);
+      $('pairList').innerHTML = wl.length ? wl.join('<br>') : '—';
+      break;
+    }
+    case 'startup': {
+      log('sys','info','Freqtrade started');
+      pushTicker('STARTUP', '', 'status');
+      break;
+    }
+    case 'status': {
+      const st = data.status || data.msg || '';
+      log('status','status',st);
+      pushTicker('STATUS', st, 'status');
+      break;
+    }
+    case 'strategy_msg': {
+      const sm = data.msg || '';
+      log('strategy','info',sm);
+      pushTicker('STRATEGY', sm, 'analyze');
+      break;
+    }
+    default: {
+      const detail = pair || (data.pair ? data.pair : '');
+      pushTicker(type.toUpperCase(), detail, 'status');
+      if(type !== 'protection_trigger' && type !== 'protection_trigger_global'){
+        log('event','info',`${type}${detail ? ' '+detail : ''}`);
+      }
+    }
+  }
+}
+
+/* ---------- Controls ---------- */
+$('btnStart').addEventListener('click', async () => {
+  try { await postJSON('/control/start'); log('ctrl','info','start command sent'); } catch(e){}
+});
+$('btnStop').addEventListener('click', async () => {
+  try { await postJSON('/control/stop'); log('ctrl','info','stop command sent'); } catch(e){}
+});
+
+/* ---------- Tabs ---------- */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['open','history','performance'].forEach(t => {
+      $('tbl-' + t).style.display = (t === btn.dataset.tab) ? '' : 'none';
+    });
+  });
+});
+
+/* ---------- Helpers ---------- */
+async function getJSON(path){
+  const res = await fetch(API_BASE + path);
+  if(!res.ok) throw new Error(res.status);
+  return res.json();
+}
+async function postJSON(path){
+  const res = await fetch(API_BASE + path, { method:'POST' });
+  if(!res.ok) throw new Error(res.status);
+  return res.json();
+}
+
+/* ---------- Init ---------- */
+async function init(){
+  log('sys','status','dashboard initializing…');
+
+  await Promise.all([
+    refreshHealth(), refreshConfig(), refreshProfit(), refreshBalance(), refreshFees(),
+    refreshDaily(), refreshOpenTrades(), refreshHistory(), refreshPerformance(),
+  ]);
+
+  log('sys','status','dashboard ready');
+
+  setInterval(() => {
+    const nowTs = Date.now();
+    $('lastPollTime').textContent = now();
+
+    // If no WS message in 15s, show status fallback on ticker
+    if(nowTs - lastWsSeen > 15000){
+      $('thinkingDetail').textContent = 'waiting…';
+    }
+
+    refreshHealth();
+    refreshProfit();
+    refreshBalance();
+    refreshFees();
+    refreshOpenTrades();
+    refreshHistory();
+    refreshPerformance();
+    refreshDaily();
+  }, 10000);
+
+  connectWS();
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+logs/
+.env
+config/config.dryrun.json
+freqtrade_stdout.log
+freqtrade_stderr.log
+user_data/
+tradesv3.dryrun.sqlite

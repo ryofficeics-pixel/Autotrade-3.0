@@ -1,0 +1,32 @@
+services:
+  # The actual paper trading engine - a real Freqtrade process in dry-run mode with its
+  # own REST API server enabled. This is not our code; it's the official Freqtrade image.
+  freqtrade:
+    image: freqtradeorg/freqtrade:stable
+    command: >
+      trade
+      --config /freqtrade/user_data/config.json
+      --strategy SampleStrategy
+    volumes:
+      - ./config/config.dryrun.json:/freqtrade/user_data/config.json:ro
+      - ./strategies:/freqtrade/user_data/strategies:ro
+      - freqtrade_data:/freqtrade/user_data
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # Our only code: a thin authenticated proxy + dashboard UI in front of Freqtrade's API.
+  dashboard:
+    build: .
+    environment:
+      FREQTRADE_API_URL: http://freqtrade:8080
+      FREQTRADE_API_USERNAME: freqtrader
+      FREQTRADE_API_PASSWORD: changeme
+    ports:
+      - "8000:8000"
+    depends_on:
+      - freqtrade
+    restart: unless-stopped
+
+volumes:
+  freqtrade_data:
