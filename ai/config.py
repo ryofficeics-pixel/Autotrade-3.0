@@ -25,11 +25,11 @@ class ModelsConfig(BaseModel):
     """Model selection for different AI tasks"""
     class FilterModels(BaseModel):
         primary: str = "deepseek-v4-flash"
-        fallback: str = "deepseek-v4-free"
+        fallback: str = "glm-5.2-free"
 
     class ReasoningModels(BaseModel):
         primary: str = "deepseek-v4-flash"
-        fallback_1: str = "deepseek-v4-free"
+        fallback_1: str = "glm-5.2-free"
     
     filter: FilterModels = Field(default_factory=FilterModels)
     reasoning: ReasoningModels = Field(default_factory=ReasoningModels)
