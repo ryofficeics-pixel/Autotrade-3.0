@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from ai.cache.response_cache import get_response_cache
 from ai.config import get_config
 from ai.providers.openai_compat import Message
-from ai.router.model_router import get_router
+from ai.router.model_router import ModelRouter
 
 logger = logging.getLogger("ai.filter.deepseek_filter")
 
@@ -69,9 +69,9 @@ class DeepSeekFilter:
         ds_escalate: score >= this → auto approve without reasoning (default: 90)
     """
     
-    def __init__(self, prompt_path: str | Path | None = None):
+    def __init__(self, prompt_path: str | Path | None = None, router=None):
         self.config = get_config()
-        self.router = get_router()
+        self.router = router if router is not None else ModelRouter()
         self.cache = get_response_cache()
         
         # Load prompt template

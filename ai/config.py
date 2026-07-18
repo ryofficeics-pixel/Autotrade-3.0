@@ -24,16 +24,12 @@ class LLMConfig(BaseModel):
 class ModelsConfig(BaseModel):
     """Model selection for different AI tasks"""
     class FilterModels(BaseModel):
-        primary: str = "deepseek-v4-pro"
-        fallback: str = "deepseek-v4-flash"
-        fallback_2: str = "deepseek-v4-free"
-    
+        primary: str = "deepseek-v4-flash"
+        fallback: str = "deepseek-v4-free"
+
     class ReasoningModels(BaseModel):
-        primary: str = "claude-sonnet-4.6"
-        fallback_1: str = "claude-sonnet-4.5-thinking"
-        fallback_2: str = "deepseek-v4-pro"
-        fallback_3: str = "deepseek-v4-flash"
-        fallback_4: str = "deepseek-v4-free"
+        primary: str = "deepseek-v4-flash"
+        fallback_1: str = "deepseek-v4-free"
     
     filter: FilterModels = Field(default_factory=FilterModels)
     reasoning: ReasoningModels = Field(default_factory=ReasoningModels)

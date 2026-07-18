@@ -12,15 +12,11 @@ ai:
   # Model configuration
   models:
     filter:
-      primary: deepseek-v4-pro
-      fallback: deepseek-v4-flash
-      fallback_2: deepseek-v4-free
+      primary: deepseek-v4-flash
+      fallback: deepseek-v4-free
     reasoning:
-      primary: claude-sonnet-4.6
-      fallback_1: claude-sonnet-4.5-thinking
-      fallback_2: deepseek-v4-pro
-      fallback_3: deepseek-v4-flash
-      fallback_4: deepseek-v4-free
+      primary: deepseek-v4-flash
+      fallback_1: deepseek-v4-free
   
   # Decision thresholds
   thresholds:

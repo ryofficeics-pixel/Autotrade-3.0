@@ -66,6 +66,8 @@
   .status-pill.offline .dot{background:var(--loss);}
   .status-pill.thinking{color:var(--accent); border-color:rgba(34,211,238,.35);}
   .status-pill.thinking .dot{background:var(--accent); box-shadow:0 0 6px var(--accent);}
+  .status-pill.warning{color:#f59e0b; border-color:rgba(245,158,11,.35);}
+  .status-pill.warning .dot{background:#f59e0b; box-shadow:0 0 6px #f59e0b;}
 
   .live-indicator{
     display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--muted);
@@ -575,17 +577,24 @@ async function refreshAIStatus(){
     const ai = await getJSON('/api/ai/status');
     const el = $('aiStatus');
     if(ai.enabled){
-      el.className = 'status-pill online';
-      let activeModel = '—';
-      if(ai.health){
-        const healthyModels = Object.entries(ai.health)
-          .filter(([name, h]) => h.is_enabled && h.total_calls > 0)
-          .sort((a, b) => b[1].total_calls - a[1].total_calls);
-        if(healthyModels.length > 0){
-          activeModel = healthyModels[0][0].split('-').slice(0,2).join('-');
+      // Determine real health: at least one model with >0 successful calls
+      const hasHealthyModel = ai.health && Object.values(ai.health).some(h => h.successful_calls > 0);
+      if(!hasHealthyModel){
+        el.className = 'status-pill warning';
+        el.innerHTML = `<span class="dot pulse"></span>AI ${ai.mode} (no models OK)`;
+      } else {
+        el.className = 'status-pill online';
+        let activeModel = '—';
+        if(ai.health){
+          const healthyModels = Object.entries(ai.health)
+            .filter(([name, h]) => h.successful_calls > 0)
+            .sort((a, b) => b[1].successful_calls - a[1].successful_calls);
+          if(healthyModels.length > 0){
+            activeModel = healthyModels[0][0].split('-').slice(0,2).join('-');
+          }
         }
+        el.innerHTML = `<span class="dot pulse"></span>AI ${ai.mode} (${activeModel})`;
       }
-      el.innerHTML = `<span class="dot pulse"></span>AI ${ai.mode} (${activeModel})`;
       $('aiMode').textContent = ai.mode;
       const cache = ai.cache || {};
       const hitRate = cache.hit_rate ? (cache.hit_rate * 100).toFixed(0) + '%' : '—';

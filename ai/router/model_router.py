@@ -83,28 +83,15 @@ class ModelRouter:
         self,
         call_type: Literal["filter", "reasoning"]
     ) -> list[str]:
-        """
-        Get model priority chain for a call type
-        
-        Args:
-            call_type: "filter" or "reasoning"
-        
-        Returns:
-            List of model names in priority order
-        """
         if call_type == "filter":
             return [
                 self.config.ai.models.filter.primary,
                 self.config.ai.models.filter.fallback,
-                self.config.ai.models.filter.fallback_2
             ]
         elif call_type == "reasoning":
             return [
                 self.config.ai.models.reasoning.primary,
                 self.config.ai.models.reasoning.fallback_1,
-                self.config.ai.models.reasoning.fallback_2,
-                self.config.ai.models.reasoning.fallback_3,
-                self.config.ai.models.reasoning.fallback_4
             ]
         else:
             raise ValueError(f"Unknown call_type: {call_type}")
@@ -196,53 +183,47 @@ class ModelRouter:
     
     async def health_check(self) -> dict[str, Any]:
         """
-        Test all configured models and re-enable healthy ones
-        
-        Returns health status of all models
+        Test primary model and re-enable healthy ones.
+
+        Only tests the primary filter model to conserve daily API quota.
         """
         from ai.providers.openai_compat import Message as M
-        
-        results = {"models_tested": [], "healthy_count": 0, "total": 0}
+
+        results = {"models_tested": [], "healthy_count": 0, "total": 1}
         test_message = [M(role="user", content="Health check. Reply OK.")]
-        
-        # Collect all unique model names
-        all_models = set()
-        for ct in ("filter", "reasoning"):
-            chain = self._get_model_chain(ct)
-            all_models.update(chain)
-        
-        results["total"] = len(all_models)
-        
-        for model_name in all_models:
-            # Re-enable if previously disabled
-            self.health_tracker.enable_model(model_name)
-            
-            try:
-                response = await self.client.chat(
-                    model=model_name,
-                    messages=test_message,
-                    max_tokens=10,
-                    temperature=0.1
-                )
-                success = response is not None and bool(response.content.strip())
-                results["models_tested"].append({
-                    "model": model_name,
-                    "success": success,
-                    "error": None
-                })
-                if success:
-                    results["healthy_count"] += 1
-                    latency = self.health_tracker.get_health(model_name)
-                    logger.info(f"Health check: {model_name} OK ({latency.avg_latency_ms:.0f}ms avg)")
-            except Exception as e:
-                self.health_tracker.record_failure(model_name, type(e).__name__)
-                results["models_tested"].append({
-                    "model": model_name,
-                    "success": False,
-                    "error": str(e)
-                })
-                logger.warning(f"Health check: {model_name} FAILED: {e}")
-        
+
+        model_name = self.config.ai.models.filter.primary
+        self.health_tracker.enable_model(model_name)
+
+        try:
+            response = await self.client.chat(
+                model=model_name,
+                messages=test_message,
+                max_tokens=10,
+                temperature=0.1,
+            )
+            success = response is not None and bool(response.content.strip())
+            results["models_tested"].append({
+                "model": model_name,
+                "success": success,
+                "error": None,
+            })
+            if success:
+                results["healthy_count"] += 1
+                latency = self.health_tracker.get_health(model_name)
+                logger.info(f"Health check: {model_name} OK ({latency.avg_latency_ms:.0f}ms avg)")
+            else:
+                self.health_tracker.record_failure(model_name, "empty_response")
+                logger.warning(f"Health check: {model_name} returned empty response")
+        except Exception as e:
+            self.health_tracker.record_failure(model_name, type(e).__name__)
+            results["models_tested"].append({
+                "model": model_name,
+                "success": False,
+                "error": str(e),
+            })
+            logger.warning(f"Health check: {model_name} FAILED: {e}")
+
         results["healthy"] = results["healthy_count"] > 0
         return results
 
