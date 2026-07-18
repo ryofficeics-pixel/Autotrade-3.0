@@ -1,0 +1,85 @@
+# Autotrade-3.1-AI Configuration
+# Turbocharger layer for Autotrade-3.0 (never breaks legacy)
+
+ai:
+  enabled: true
+  mode: hybrid  # legacy | hybrid | ai_full
+  
+  # Timeouts and cache
+  timeout: 15  # seconds per AI call
+  cache_minutes: 5  # TTL for response cache
+  
+  # Model configuration
+  models:
+    filter:
+      primary: deepseek-v4-pro
+      fallback: deepseek-v4-flash
+      fallback_2: deepseek-v4-free
+    reasoning:
+      primary: claude-sonnet-4.6
+      fallback_1: claude-sonnet-4.5-thinking
+      fallback_2: deepseek-v4-pro
+      fallback_3: deepseek-v4-flash
+      fallback_4: deepseek-v4-free
+  
+  # Decision thresholds
+  thresholds:
+    ds_reject: 70        # < 70 → auto reject
+    ds_escalate: 90      # >= 90 → direct approve (optional)
+  
+  # Health tracking
+  health:
+    auto_disable_after_failures: 5
+    check_interval: 300  # seconds
+  
+  # LLM provider (OpenAI-compatible)
+  llm:
+    base_url: https://openagentic.id/api/v1
+    api_key: ${OPENAI_API_KEY}  # from env
+
+# Risk engine (AI may never bypass these)
+risk:
+  max_daily_loss: 10.0          # USDT
+  max_consecutive_losses: 3
+  max_open_positions: 5
+  max_position_size: 50.0       # USDT
+  max_leverage: 1               # spot only for now
+  cooldown_after_losses: 1800   # seconds
+  emergency_shutdown_loss: 20.0 # USDT
+
+# Feature store
+features:
+  enabled: true
+  indicators:
+    - RSI
+    - MACD
+    - ATR
+    - EMA_TREND
+    - VOLUME_SPIKE
+  market_data:
+    - BTC_REGIME
+    - BTC_DOMINANCE
+    - FUNDING_RATE
+
+# Monitoring
+monitoring:
+  telegram:
+    enabled: false
+    bot_token: ""
+    chat_id: ""
+  
+  notifications:
+    - trade_open
+    - trade_close
+    - tp_hit
+    - sl_hit
+    - ai_rejection
+    - model_fallback
+    - ai_disabled
+    - api_failure
+    - emergency_shutdown
+
+# Database (analytics)
+database:
+  path: database/ai_analytics.db
+  retention_days: 90

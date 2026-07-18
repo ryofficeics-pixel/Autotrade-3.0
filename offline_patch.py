@@ -1,4 +1,5 @@
 """Patch Freqtrade exchange to use static market & OHLCV data (offline mode)."""
+import hashlib
 import json
 from pathlib import Path
 
@@ -155,14 +156,17 @@ def patch():
             new_close = prev[4] * (1 + (0.5 - (last_ts % 11) / 11) * 0.002)
             new_candle = [
                 last_ts,
-                round(prev[4], 2),
-                round(max(prev[4], new_close) * 1.001, 2),
-                round(min(prev[4], new_close) * 0.999, 2),
-                round(new_close, 2),
+                round(prev[4], 8),
+                round(max(prev[4], new_close) * 1.001, 8),
+                round(min(prev[4], new_close) * 0.999, 8),
+                round(new_close, 8),
                 round(prev[5] * (0.9 + (last_ts % 5) / 10), 4),
             ]
             extended.append(new_candle)
         if since_ms is not None:
+            # Cap to at most 2h behind to avoid processing overnight gap candles
+            min_since = now_ms - 120 * 60 * 1000
+            since_ms = max(since_ms, min_since)
             extended = [c for c in extended if c[0] >= since_ms]
         if logger:
             logger.info(f"PATCH: Returning {len(extended)} candles for {pair} (since filter: {since_ms is not None})")
@@ -187,9 +191,12 @@ def patch():
         candles = _load_cached_data(pair, "5m")
         base = candles[-1][4] if candles else (60000.0 if "BTC" in pair else 3000.0)
         now_s = time_mod.time()
-        # fast tick ±0.05%, slow drift ±3% over ~30 min cycle
-        tick = math.sin(now_s * 2.0) * 0.0005 + math.sin(now_s * 0.015) * 0.03
-        return round(base * (1.0 + tick), 2)
+        # per-pair phase so each pair moves independently
+        seed = int(hashlib.md5(pair.encode()).hexdigest()[:8], 16)
+        phase = seed / 2**32 * 2 * math.pi
+        # slow drift ±6% over ~35 min cycle, fast tick ±0.2%
+        tick = math.sin(now_s * 0.003 + phase) * 0.06 + math.sin(now_s * 5.0 + phase) * 0.002
+        return round(base * (1.0 + tick), 8)
 
     # ---- Patch fetch_l2_order_book to return mock data (avoids RequestTimeout) ----
     orig_order_book = ex_mod.Exchange.fetch_l2_order_book

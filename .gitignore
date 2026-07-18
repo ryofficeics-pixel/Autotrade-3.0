@@ -9,3 +9,16 @@ freqtrade_stdout.log
 freqtrade_stderr.log
 user_data/
 tradesv3.dryrun.sqlite
+
+# Runtime artifacts
+*.log
+*.sqlite-shm
+*.sqlite-wal
+*_log.csv
+database/
+
+# AI Layer (Autotrade-3.1-AI)
+ai/cache/*.json
+database/*.db
+database/*.sqlite
+.ai_cache/

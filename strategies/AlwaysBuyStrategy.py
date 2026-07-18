@@ -3,10 +3,15 @@ from freqtrade.strategy import IStrategy
 
 
 class AlwaysBuyStrategy(IStrategy):
-    minimal_roi = {"0": 0.02, "20": 0.015, "40": 0.01}
-    stoploss = -0.015
+    minimal_roi = {"0": 0.04}
+    stoploss = -0.02
+
+
+
+
+
     timeframe = "5m"
-    process_only_new_candles = False
+    process_only_new_candles = True
     use_exit_signal = True
     startup_candle_count = 0
 

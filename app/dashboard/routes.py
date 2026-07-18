@@ -57,15 +57,26 @@ async def api_whitelist():
     return await _proxy(freqtrade_client.whitelist())
 
 
+_fee_cache: dict | None = None
+_fee_cache_ts: float = 0
+
 @router.get("/api/fees")
 async def api_fees():
-    trades = await freqtrade_client.trades(limit=9999)
-    trades_list = trades.get("trades") if isinstance(trades, dict) else trades
+    global _fee_cache, _fee_cache_ts
+    now = __import__("time").time()
+    if _fee_cache is not None and now - _fee_cache_ts < 60:
+        return _fee_cache
+    trades = await freqtrade_client.trades(limit=200)
+    trades_list = trades.get("trades") if isinstance(trades, dict) else (trades if isinstance(trades, list) else [])
     total_fee = 0.0
     for t in trades_list:
-        total_fee += t.get("fee_open_cost") or 0
-        total_fee += t.get("fee_close_cost") or 0
-    return {"total_fees": round(total_fee, 6), "avg_fee_per_trade": round(total_fee / max(len(trades_list), 1), 6), "trade_count": len(trades_list)}
+        if not isinstance(t, dict):
+            continue
+        total_fee += t.get("fee_open_cost") if isinstance(t.get("fee_open_cost"), (int, float)) else 0
+        total_fee += t.get("fee_close_cost") if isinstance(t.get("fee_close_cost"), (int, float)) else 0
+    _fee_cache = {"total_fees": round(total_fee, 6), "avg_fee_per_trade": round(total_fee / max(len(trades_list), 1), 6), "trade_count": len(trades_list)}
+    _fee_cache_ts = now
+    return _fee_cache
 
 
 @router.get("/api/config")

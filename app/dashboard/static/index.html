@@ -224,6 +224,18 @@
     </div>
 
     <div>
+      <div class="section-label">AI Layer (3.1)</div>
+      <span id="aiStatus" class="status-pill offline"><span class="dot"></span>Checking…</span>
+      <div style="margin-top:6px;font-size:10.5px;color:var(--muted);font-family:'JetBrains Mono',monospace;">
+        mode: <span id="aiMode">—</span> | cache: <span id="aiCacheHits">—</span>
+      </div>
+      <div style="margin-top:2px;font-size:10.5px;color:var(--muted);font-family:'JetBrains Mono',monospace;">
+        reconnect: <span id="aiLastCheck">—</span>
+      </div>
+      <button class="btn" id="btnAIRetry" style="margin-top:8px;width:100%;font-size:11px;padding:6px 8px;">&#x21bb; Retry AI Connection</button>
+    </div>
+
+    <div>
       <div class="section-label">Strategy</div>
       <div class="field mono" id="strategyName" style="padding:9px 10px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; font-size:13px;">Loading…</div>
     </div>
@@ -558,6 +570,45 @@ async function refreshPerformance(){
   } catch(e){}
 }
 
+async function refreshAIStatus(){
+  try{
+    const ai = await getJSON('/api/ai/status');
+    const el = $('aiStatus');
+    if(ai.enabled){
+      el.className = 'status-pill online';
+      let activeModel = '—';
+      if(ai.health){
+        const healthyModels = Object.entries(ai.health)
+          .filter(([name, h]) => h.is_enabled && h.total_calls > 0)
+          .sort((a, b) => b[1].total_calls - a[1].total_calls);
+        if(healthyModels.length > 0){
+          activeModel = healthyModels[0][0].split('-').slice(0,2).join('-');
+        }
+      }
+      el.innerHTML = `<span class="dot pulse"></span>AI ${ai.mode} (${activeModel})`;
+      $('aiMode').textContent = ai.mode;
+      const cache = ai.cache || {};
+      const hitRate = cache.hit_rate ? (cache.hit_rate * 100).toFixed(0) + '%' : '—';
+      $('aiCacheHits').textContent = hitRate;
+      const arc = ai.auto_reconnect || {};
+      $('aiLastCheck').textContent = arc.last_check ? arc.last_check + (arc.healthy ? ' OK' : ' FAIL') : '—';
+    } else {
+      el.className = 'status-pill offline';
+      el.innerHTML = `<span class="dot"></span>Legacy`;
+      $('aiMode').textContent = 'legacy';
+      $('aiCacheHits').textContent = '—';
+      $('aiLastCheck').textContent = '—';
+    }
+  } catch(e){
+    const el = $('aiStatus');
+    el.className = 'status-pill offline';
+    el.innerHTML = `<span class="dot"></span>Legacy`;
+    $('aiMode').textContent = 'legacy';
+    $('aiCacheHits').textContent = '—';
+    $('aiLastCheck').textContent = '—';
+  }
+}
+
 /* ---------- WebSocket ---------- */
 function connectWS(){
   const ws = new WebSocket(WS_BASE + '/ws/messages');
@@ -661,6 +712,49 @@ $('btnStart').addEventListener('click', async () => {
 $('btnStop').addEventListener('click', async () => {
   try { await postJSON('/control/stop'); log('ctrl','info','stop command sent'); } catch(e){}
 });
+$('btnAIRetry').addEventListener('click', async () => {
+  try {
+    const btn = $('btnAIRetry');
+    btn.disabled = true;
+    btn.textContent = '\u23f3 Testing AI models...';
+    log('ai','info','AI retry initiated - testing all models...');
+    
+    const result = await postJSON('/api/ai/retry');
+    
+    if(result.success){
+      log('ai','info',`AI reconnected via ${result.fallback_activated}`);
+      btn.textContent = '\u2713 AI Connected';
+      btn.style.background = 'rgba(52,211,153,.12)';
+      setTimeout(() => {
+        btn.textContent = '\u21bb Retry AI Connection';
+        btn.style.background = '';
+        btn.disabled = false;
+      }, 3000);
+    } else {
+      log('ai','warn','All AI models failed - using legacy mode');
+      btn.textContent = '\u2717 All Models Failed';
+      btn.style.background = 'rgba(248,113,113,.12)';
+      setTimeout(() => {
+        btn.textContent = '\u21bb Retry AI Connection';
+        btn.style.background = '';
+        btn.disabled = false;
+      }, 3000);
+    }
+    
+    // Refresh AI status display
+    await refreshAIStatus();
+  } catch(e){
+    log('ai','error',`AI retry failed: ${e.message || e}`);
+    const btn = $('btnAIRetry');
+    btn.textContent = '\u2717 Error';
+    btn.style.background = 'rgba(248,113,113,.12)';
+    setTimeout(() => {
+      btn.textContent = '\u21bb Retry AI Connection';
+      btn.style.background = '';
+      btn.disabled = false;
+    }, 3000);
+  }
+});
 
 /* ---------- Tabs ---------- */
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -689,18 +783,22 @@ async function postJSON(path){
 async function init(){
   log('sys','status','dashboard initializing…');
 
+  // Fast items load first (they block the UI ready state)
   await Promise.all([
-    refreshHealth(), refreshConfig(), refreshProfit(), refreshBalance(), refreshFees(),
-    refreshDaily(), refreshOpenTrades(), refreshHistory(), refreshPerformance(),
+    refreshHealth(), refreshConfig(), refreshProfit(), refreshBalance(), refreshOpenTrades(), refreshAIStatus(),
   ]);
-
   log('sys','status','dashboard ready');
 
+  // Slow items load in background
+  Promise.all([
+    refreshFees(), refreshDaily(), refreshHistory(), refreshPerformance(),
+  ]);
+
+  // Fast poll (10s) — lightweight endpoints
   setInterval(() => {
     const nowTs = Date.now();
     $('lastPollTime').textContent = now();
 
-    // If no WS message in 15s, show status fallback on ticker
     if(nowTs - lastWsSeen > 15000){
       $('thinkingDetail').textContent = 'waiting…';
     }
@@ -708,12 +806,17 @@ async function init(){
     refreshHealth();
     refreshProfit();
     refreshBalance();
-    refreshFees();
     refreshOpenTrades();
+  }, 10000);
+
+  // Slow poll (60s) — heavier endpoints
+  setInterval(() => {
+    refreshFees();
     refreshHistory();
     refreshPerformance();
     refreshDaily();
-  }, 10000);
+    refreshAIStatus();
+  }, 60000);
 
   connectWS();
 }

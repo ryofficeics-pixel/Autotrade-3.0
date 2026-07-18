@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -27,8 +28,47 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("could not reach Freqtrade API at startup - will retry lazily on first request")
     ws_relay.start()
+    
+    # Start AI auto-reconnection task (checks models every 10 min)
+    ai_task = None
+    try:
+        from ai.router.model_router import get_router
+        from ai.api import update_auto_reconnect
+        
+        async def _ai_health_loop():
+            while True:
+                try:
+                    router = get_router()
+                    result = await router.health_check()
+                    healthy = result.get("healthy", False)
+                    active_model = ""
+                    for m in result.get("models_tested", []):
+                        if m.get("success"):
+                            active_model = m["model"]
+                            break
+                    update_auto_reconnect(healthy, active_model)
+                    if healthy:
+                        logger.info(f"AI reconnect OK — {active_model} active ({result['healthy_count']}/{result['total']} models healthy)")
+                    else:
+                        logger.warning(f"AI reconnect FAILED — all {result['total']} models down, using legacy")
+                except Exception as exc:
+                    logger.debug(f"AI health check skipped: {exc}")
+                await asyncio.sleep(600)  # 10 minutes
+        
+        ai_task = asyncio.create_task(_ai_health_loop())
+        logger.info("AI auto-reconnect task started (every 10 min)")
+    except ImportError:
+        logger.info("AI layer not available — skipping auto-reconnect")
+    
     logger.info("dashboard startup complete")
     yield
+    
+    if ai_task:
+        ai_task.cancel()
+        try:
+            await ai_task
+        except asyncio.CancelledError:
+            pass
     await ws_relay.stop()
     await freqtrade_client.close()
     logger.info("dashboard shutdown complete")
@@ -45,6 +85,14 @@ app.add_middleware(
 )
 
 app.include_router(dashboard_router, tags=["dashboard"])
+
+# AI status endpoint (Autotrade-3.1-AI)
+try:
+    from ai.api import router as ai_router
+    app.include_router(ai_router, tags=["ai"])
+    logger.info("AI layer enabled")
+except ImportError:
+    logger.info("AI layer not available (missing dependencies or config)")
 
 
 @app.get("/health")
