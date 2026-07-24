@@ -29,34 +29,49 @@ async def lifespan(app: FastAPI):
         logger.exception("could not reach Freqtrade API at startup - will retry lazily on first request")
     ws_relay.start()
     
-    # Start AI auto-reconnection task (checks models every 10 min)
+    # Start AI auto-reconnection task (checks models every 5 min)
     ai_task = None
     try:
         from ai.router.model_router import get_router
         from ai.api import update_auto_reconnect
         
         async def _ai_health_loop():
+            RETRY_DELAYS = [5, 15, 30]  # seconds between retries
+            CYCLE_SLEEP = 300  # 5 minutes between full cycles
+            
             while True:
-                try:
-                    router = get_router()
-                    result = await router.health_check()
-                    healthy = result.get("healthy", False)
-                    active_model = ""
-                    for m in result.get("models_tested", []):
-                        if m.get("success"):
-                            active_model = m["model"]
-                            break
-                    update_auto_reconnect(healthy, active_model)
-                    if healthy:
-                        logger.info(f"AI reconnect OK — {active_model} active ({result['healthy_count']}/{result['total']} models healthy)")
-                    else:
-                        logger.warning(f"AI reconnect FAILED — all {result['total']} models down, using legacy")
-                except Exception as exc:
-                    logger.debug(f"AI health check skipped: {exc}")
-                await asyncio.sleep(600)  # 10 minutes
+                router = get_router()
+                
+                for attempt, delay in enumerate(RETRY_DELAYS + [CYCLE_SLEEP]):
+                    try:
+                        result = await router.health_check()
+                        healthy = result.get("healthy", False)
+                        active_model = ""
+                        for m in result.get("models_tested", []):
+                            if m.get("success"):
+                                active_model = m["model"]
+                                break
+                        update_auto_reconnect(healthy, active_model)
+                        
+                        if healthy:
+                            logger.info(f"AI reconnect OK — {active_model} active")
+                            break  # back to CYCLE_SLEEP
+                        else:
+                            remaining = len(RETRY_DELAYS) - attempt
+                            logger.warning(f"AI reconnect attempt {attempt+1}/{len(RETRY_DELAYS)+1} FAILED — {remaining} retries left")
+                            if attempt < len(RETRY_DELAYS):
+                                await asyncio.sleep(delay)
+                            else:
+                                await asyncio.sleep(CYCLE_SLEEP)
+                    except Exception as exc:
+                        logger.debug(f"AI health check error: {exc}")
+                        if attempt < len(RETRY_DELAYS):
+                            await asyncio.sleep(delay)
+                        else:
+                            await asyncio.sleep(CYCLE_SLEEP)
         
         ai_task = asyncio.create_task(_ai_health_loop())
-        logger.info("AI auto-reconnect task started (every 10 min)")
+        logger.info("AI auto-reconnect task started (every 5 min)")
     except ImportError:
         logger.info("AI layer not available — skipping auto-reconnect")
     

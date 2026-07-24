@@ -182,47 +182,45 @@ class ModelRouter:
         await self.client.close()
     
     async def health_check(self) -> dict[str, Any]:
-        """
-        Test primary model and re-enable healthy ones.
-
-        Only tests the primary filter model to conserve daily API quota.
-        """
         from ai.providers.openai_compat import Message as M
 
-        results = {"models_tested": [], "healthy_count": 0, "total": 1}
+        results = {"models_tested": [], "healthy_count": 0, "total": 2}
         test_message = [M(role="user", content="Health check. Reply OK.")]
+        models = [
+            self.config.ai.models.filter.primary,
+            self.config.ai.models.filter.fallback,
+        ]
 
-        model_name = self.config.ai.models.filter.primary
-        self.health_tracker.enable_model(model_name)
-
-        try:
-            response = await self.client.chat(
-                model=model_name,
-                messages=test_message,
-                max_tokens=10,
-                temperature=0.1,
-            )
-            success = response is not None and bool(response.content.strip())
-            results["models_tested"].append({
-                "model": model_name,
-                "success": success,
-                "error": None,
-            })
-            if success:
-                results["healthy_count"] += 1
-                latency = self.health_tracker.get_health(model_name)
-                logger.info(f"Health check: {model_name} OK ({latency.avg_latency_ms:.0f}ms avg)")
-            else:
-                self.health_tracker.record_failure(model_name, "empty_response")
-                logger.warning(f"Health check: {model_name} returned empty response")
-        except Exception as e:
-            self.health_tracker.record_failure(model_name, type(e).__name__)
-            results["models_tested"].append({
-                "model": model_name,
-                "success": False,
-                "error": str(e),
-            })
-            logger.warning(f"Health check: {model_name} FAILED: {e}")
+        for model_name in models:
+            self.health_tracker.enable_model(model_name)
+            try:
+                response = await self.client.chat(
+                    model=model_name,
+                    messages=test_message,
+                    max_tokens=10,
+                    temperature=0.1,
+                )
+                success = response is not None and bool(response.content.strip())
+                results["models_tested"].append({
+                    "model": model_name,
+                    "success": success,
+                    "error": None,
+                })
+                if success:
+                    results["healthy_count"] += 1
+                    latency = self.health_tracker.get_health(model_name)
+                    logger.info(f"Health check: {model_name} OK ({latency.avg_latency_ms:.0f}ms avg)")
+                else:
+                    self.health_tracker.record_failure(model_name, "empty_response")
+                    logger.warning(f"Health check: {model_name} returned empty response")
+            except Exception as e:
+                self.health_tracker.record_failure(model_name, type(e).__name__)
+                results["models_tested"].append({
+                    "model": model_name,
+                    "success": False,
+                    "error": str(e),
+                })
+                logger.warning(f"Health check: {model_name} FAILED: {e}")
 
         results["healthy"] = results["healthy_count"] > 0
         return results
